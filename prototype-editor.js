@@ -1,7 +1,7 @@
 (function (global) {
   'use strict';
 
-  const defaults = { exportFileName:'原型-编辑版.html', allowDelete:true, storageKey:null };
+  const defaults = { exportFileName:'原型-编辑版.html', allowDelete:true, storageKey:null, saveServiceUrl:null };
   const textSelector = 'h1,h2,h3,h4,h5,h6,p,a,button,label,th,td,li,small,strong,b,em,span';
   const escapeHtml = value => String(value || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
 
@@ -9,8 +9,8 @@
     if (document.getElementById('prototypeEditorRoot')) return;
     const options = { ...defaults, ...userOptions };
     const storageKey = options.storageKey || 'prototype-editor:' + location.pathname;
-    const empty = () => ({ text:{}, attributes:{}, hidden:{}, tables:{} });
-    const normalise = value => ({ text:{...(value && value.text || {})}, attributes:{...(value && value.attributes || {})}, hidden:{...(value && value.hidden || {})}, tables:{...(value && value.tables || {})} });
+    const empty = () => ({ text:{}, attributes:{}, hidden:{}, tables:{}, selects:{} });
+    const normalise = value => ({ text:{...(value && value.text || {})}, attributes:{...(value && value.attributes || {})}, hidden:{...(value && value.hidden || {})}, tables:{...(value && value.tables || {})}, selects:{...(value && value.selects || {})} });
     const clone = value => JSON.parse(JSON.stringify(value));
     const sourceNode = document.getElementById('prototypeEditorEdits');
     let source = empty(), draft = empty();
@@ -22,7 +22,7 @@
 
     const root = document.createElement('div');
     root.id = 'prototypeEditorRoot';
-    root.innerHTML = '<button type="button" class="pe-toggle" data-pe="toggle">编辑原型</button><aside class="pe-panel" hidden><h3>编辑原型</h3><p class="pe-status">修改会自动暂存</p><div class="pe-actions"><button type="button" data-pe="undo">上一步</button><button type="button" data-pe="redo">下一步</button></div><div class="pe-actions"><button type="button" class="pe-primary" data-pe="export">导出新 HTML</button></div><section class="pe-history"><b>修改记录</b><ul><li>尚无修改</li></ul></section></aside><div class="pe-context" hidden></div>';
+    root.innerHTML = '<button type="button" class="pe-toggle" data-pe="toggle">编辑原型</button><aside class="pe-panel" hidden><h3>编辑原型</h3><p class="pe-status">修改会自动暂存</p><div class="pe-actions"><button type="button" data-pe="undo">上一步</button><button type="button" data-pe="redo">下一步</button></div><div class="pe-actions"><button type="button" class="pe-primary" data-pe="export">导出新 HTML</button><button type="button" class="pe-primary" data-pe="overwrite">覆盖源文件</button></div><section class="pe-history"><b>修改记录</b><ul><li>尚无修改</li></ul></section></aside><div class="pe-context" hidden></div>';
     document.body.appendChild(root);
     const toggle = root.querySelector('.pe-toggle'), panel = root.querySelector('.pe-panel'), status = root.querySelector('.pe-status'), historyList = root.querySelector('.pe-history ul'), context = root.querySelector('.pe-context');
 
@@ -58,6 +58,7 @@
       const element = find(key); if (!element) return;
       if (value.changes.has('text')) element.textContent = value.text;
       if (value.changes.has('table')) element.innerHTML = value.html;
+      if (value.changes.has('select')) element.innerHTML = value.html;
       if (value.changes.has('attributes')) {
         element.className = value.className;
         if (value.style === null) element.removeAttribute('style'); else element.setAttribute('style', value.style);
@@ -69,6 +70,7 @@
       document.querySelectorAll('.pe-hidden').forEach(element => element.classList.remove('pe-hidden'));
       restoreInitial();
       Object.entries(config.tables).forEach(([key, html]) => { const table = find(key); if (table) table.innerHTML = html; });
+      Object.entries(config.selects).forEach(([key, html]) => { const select = find(key); if (select) select.innerHTML = html; });
       Object.entries(config.text).forEach(([key, value]) => { const element = find(key); if (element) element.textContent = value; });
       Object.entries(config.attributes).forEach(([key, attributes]) => { const element = find(key); if (element) Object.entries(attributes).forEach(([name, value]) => element.setAttribute(name, value)); });
       Object.keys(config.hidden).forEach(key => find(key)?.classList.add('pe-hidden'));
@@ -91,6 +93,18 @@
       context.innerHTML = '<span style="font-size:12px;color:#287a57;padding:4px">已保存</span>'; setTimeout(clear, 450);
     };
     const saveTable = label => { remember(selected.table, 'table'); config.tables[selected.tableKey] = selected.table.innerHTML; commit(label); clear(); };
+    const optionEditor = (label, value, selectedOption) => '<div class="pe-option" data-pe-option><label>名称<input data-pe-option-label value="' + escapeHtml(label) + '"></label><label>值<input data-pe-option-value value="' + escapeHtml(value) + '"></label><label class="pe-option-default"><input type="radio" name="pe-option-default" data-pe-option-selected' + (selectedOption ? ' checked' : '') + '> 默认</label><button type="button" class="pe-danger" data-pe-action="deleteOption">删除</button></div>';
+    const selectContext = () => {
+      const rows = Array.from(selected.element.options).map(option => optionEditor(option.text, option.value, option.selected)).join('');
+      return '<div class="pe-option-list">' + rows + '</div><button data-pe-action="addOption">添加选项</button><button class="pe-primary" data-pe-action="saveOptions">保存选项</button>';
+    };
+    const saveOptions = () => {
+      const rows = Array.from(context.querySelectorAll('[data-pe-option]'));
+      const options = rows.map(row => ({ label:row.querySelector('[data-pe-option-label]').value, value:row.querySelector('[data-pe-option-value]').value, selected:row.querySelector('[data-pe-option-selected]').checked }));
+      selected.element.replaceChildren();
+      options.forEach(item => { const option = document.createElement('option'); option.textContent = item.label; option.value = item.value; option.selected = item.selected; selected.element.appendChild(option); });
+      remember(selected.element, 'select'); config.selects[selected.key] = selected.element.innerHTML; commit('修改下拉选项'); clear();
+    };
     const hide = () => {
       if (!selected || !options.allowDelete) return;
       remember(selected.hideTarget); config.hidden[selected.hideKey] = true; selected.hideTarget.classList.add('pe-hidden'); commit('隐藏元素'); clear();
@@ -98,7 +112,8 @@
     const showContext = () => {
       if (!selected) return;
       let html = '';
-      if (selected.input) html = '<label>占位提示<input data-pe-field="placeholder" value="' + escapeHtml(selected.element.placeholder) + '"></label><button data-pe-action="placeholder">保存</button><button class="pe-danger" data-pe-action="delete">删除</button>';
+      if (selected.select) html = selectContext();
+      else if (selected.input) html = '<label>占位提示<input data-pe-field="placeholder" value="' + escapeHtml(selected.element.placeholder) + '"></label><button data-pe-action="placeholder">保存</button><button class="pe-danger" data-pe-action="delete">删除</button>';
       else if (selected.image) html = '<label>替换图片<input data-pe-field="image" type="file" accept="image/*"></label><button class="pe-danger" data-pe-action="delete">删除</button>';
       else if (selected.link) html = '<label>跳转地址<input data-pe-field="href" value="' + escapeHtml(selected.element.getAttribute('href') || '') + '"></label><button data-pe-action="href">保存链接</button><button data-pe-action="text">保存文字</button><button class="pe-danger" data-pe-action="delete">删除</button>';
       else if (selected.table && selected.cell) {
@@ -113,13 +128,13 @@
       context.innerHTML = html; context.hidden = false; position();
     };
     const choose = sourceElement => {
-      const input = sourceElement.closest('input,textarea'), image = sourceElement.closest('img'), cell = sourceElement.closest('th,td'), table = sourceElement.closest('table'), link = sourceElement.closest('a');
+      const input = sourceElement.closest('input,textarea'), select = sourceElement.closest('select'), image = sourceElement.closest('img'), cell = sourceElement.closest('th,td'), table = sourceElement.closest('table'), link = sourceElement.closest('a');
       const text = sourceElement.closest(textSelector);
-      const element = input || image || text || table || sourceElement.closest('[data-prototype-editable]');
+      const element = select || input || image || text || table || sourceElement.closest('[data-prototype-editable]');
       if (!element || element.closest('#prototypeEditorRoot')) return;
-      clear(); const hideTarget = input || image || (table && !cell ? table : element);
+      clear(); const hideTarget = select || input || image || (table && !cell ? table : element);
       [element, hideTarget, table].filter(Boolean).forEach(remember);
-      selected = { element, key:pathFor(element), hideTarget, hideKey:pathFor(hideTarget), input:!!input, image:!!image, link:!!link, text:!!text, table, tableKey:table ? pathFor(table) : '', cell, row:cell?.closest('tr') };
+      selected = { element, key:pathFor(element), hideTarget, hideKey:pathFor(hideTarget), input:!!input, select:!!select, image:!!image, link:!!link, text:!!text, table, tableKey:table ? pathFor(table) : '', cell, row:cell?.closest('tr') };
       element.classList.add('pe-selected','pe-selectable'); showContext();
       if (selected.text && !selected.input && !selected.image) { element.setAttribute('contenteditable','true'); element.classList.add('pe-inline-editing'); element.focus(); }
     };
@@ -129,15 +144,53 @@
       if (!value) clear();
     };
     const exportHtml = () => {
-      const json = JSON.stringify(config).replace(/</g, '\\u003c');
-      const tag = '<script id="prototypeEditorEdits" type="application/json">' + json + '</script>';
-      const current = document.getElementById('prototypeEditorEdits');
-      const html = '<!doctype html>\n' + document.documentElement.outerHTML.replace(current ? current.outerHTML : '</body>', current ? tag : tag + '</body>');
+      const page = document.documentElement.cloneNode(true);
+      page.querySelector('#prototypeEditorRoot')?.remove();
+      page.querySelector('#codex-browser-sidebar-comments-root')?.remove();
+      page.querySelector('#prototypeEditorEdits')?.remove();
+      page.querySelectorAll('.pe-selected,.pe-selectable,.pe-inline-editing').forEach(element => {
+        const editingText = element.classList.contains('pe-inline-editing');
+        element.classList.remove('pe-selected','pe-selectable','pe-inline-editing');
+        if (editingText) element.removeAttribute('contenteditable');
+        if (!element.className) element.removeAttribute('class');
+      });
+      page.querySelectorAll('.pe-hidden').forEach(element => { element.classList.remove('pe-hidden'); element.hidden = true; if (!element.className) element.removeAttribute('class'); });
+      page.querySelectorAll('link[href]').forEach(link => { if (link.getAttribute('href').split('?')[0].endsWith('prototype-editor.css')) link.remove(); });
+      page.querySelectorAll('script').forEach(script => {
+        const source = script.getAttribute('src') || '';
+        if (source.split('?')[0].endsWith('prototype-editor.js') || script.textContent.includes('PrototypeEditor.init')) script.remove();
+      });
+      const html = '<!doctype html>\n' + page.outerHTML;
       const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([html], { type:'text/html;charset=utf-8' })); link.download = options.exportFileName; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 0);
       status.textContent = '已导出新 HTML';
     };
+    const sourceHtml = () => {
+      const page = document.documentElement.cloneNode(true);
+      page.querySelector('#prototypeEditorRoot')?.remove();
+      const json = JSON.stringify(config).replace(/</g, '\\u003c');
+      const current = page.querySelector('#prototypeEditorEdits');
+      if (current) current.textContent = json;
+      else {
+        const tag = document.createElement('script');
+        tag.id = 'prototypeEditorEdits'; tag.type = 'application/json'; tag.textContent = json;
+        page.querySelector('body')?.appendChild(tag);
+      }
+      return '<!doctype html>\n' + page.outerHTML;
+    };
+    const overwriteSource = async () => {
+      if (!confirm('将覆盖当前 HTML 源文件，并自动创建备份。确定继续吗？')) return;
+      status.textContent = '正在覆盖源文件…';
+      const endpoint = options.saveServiceUrl || (location.protocol === 'file:' ? 'http://127.0.0.1:4173/__prototype-editor__/overwrite' : '/__prototype-editor__/overwrite');
+      const sourcePath = location.protocol === 'file:' ? decodeURIComponent(location.pathname) : location.pathname;
+      try {
+        const response = await fetch(endpoint, { method:'POST', headers:{ 'Content-Type':'text/plain;charset=UTF-8' }, body:JSON.stringify({ path:sourcePath, html:sourceHtml() }) });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || '保存失败');
+        status.textContent = '已覆盖源文件，备份：' + result.backup;
+      } catch (error) { status.textContent = '覆盖失败：' + error.message; }
+    };
     root.addEventListener('click', event => {
-      const control = event.target.closest('[data-pe]'); if (control) { const action = control.dataset.pe; if (action === 'toggle') setEditing(!editing); if (action === 'export') exportHtml(); if (action === 'undo' && historyIndex) { config = clone(history[--historyIndex].config); applyConfig(); saveDraft(); renderHistory(); } if (action === 'redo' && historyIndex < history.length - 1) { config = clone(history[++historyIndex].config); applyConfig(); saveDraft(); renderHistory(); } return; }
+      const control = event.target.closest('[data-pe]'); if (control) { const action = control.dataset.pe; if (action === 'toggle') setEditing(!editing); if (action === 'export') exportHtml(); if (action === 'overwrite') overwriteSource(); if (action === 'undo' && historyIndex) { config = clone(history[--historyIndex].config); applyConfig(); saveDraft(); renderHistory(); } if (action === 'redo' && historyIndex < history.length - 1) { config = clone(history[++historyIndex].config); applyConfig(); saveDraft(); renderHistory(); } return; }
       const action = event.target.closest('[data-pe-action]')?.dataset.peAction; if (!action || !selected) return;
       if (action === 'cancel') {
         if (selected.text && !selected.input && !selected.image) {
@@ -147,6 +200,9 @@
         clear(); return;
       }
       if (action === 'text') saveText();
+      if (action === 'addOption') { context.querySelector('.pe-option-list').insertAdjacentHTML('beforeend', optionEditor('新选项', 'new-option', false)); position(); }
+      if (action === 'deleteOption') { event.target.closest('[data-pe-option]')?.remove(); position(); }
+      if (action === 'saveOptions') saveOptions();
       if (action === 'delete') hide();
       if (action === 'placeholder') { const value = context.querySelector('[data-pe-field="placeholder"]').value; remember(selected.element, 'attributes'); config.attributes[selected.key] = { ...(config.attributes[selected.key] || {}), placeholder:value }; selected.element.placeholder = value; commit('修改输入提示'); }
       if (action === 'href') { const value = context.querySelector('[data-pe-field="href"]').value; remember(selected.element, 'attributes'); config.attributes[selected.key] = { ...(config.attributes[selected.key] || {}), href:value }; selected.element.setAttribute('href', value); commit('修改链接'); }
