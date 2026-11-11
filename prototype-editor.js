@@ -9,6 +9,7 @@
     if (document.getElementById('prototypeEditorRoot')) return;
     const options = { ...defaults, ...userOptions };
     const storageKey = options.storageKey || 'prototype-editor:' + location.pathname;
+    const panelPositionKey = storageKey + ':panel-position';
     const empty = () => ({ text:{}, attributes:{}, hidden:{}, tables:{}, selects:{} });
     const normalise = value => ({ text:{...(value && value.text || {})}, attributes:{...(value && value.attributes || {})}, hidden:{...(value && value.hidden || {})}, tables:{...(value && value.tables || {})}, selects:{...(value && value.selects || {})} });
     const clone = value => JSON.parse(JSON.stringify(value));
@@ -22,7 +23,7 @@
 
     const root = document.createElement('div');
     root.id = 'prototypeEditorRoot';
-    root.innerHTML = '<button type="button" class="pe-toggle" data-pe="toggle">编辑原型</button><aside class="pe-panel" hidden><h3>编辑原型</h3><p class="pe-status">修改会自动暂存</p><div class="pe-actions"><button type="button" data-pe="undo">上一步</button><button type="button" data-pe="redo">下一步</button></div><div class="pe-actions"><button type="button" class="pe-primary" data-pe="export">导出新 HTML</button><button type="button" class="pe-primary" data-pe="overwrite">覆盖源文件</button></div><section class="pe-history"><b>修改记录</b><ul><li>尚无修改</li></ul></section></aside><div class="pe-context" hidden></div>';
+    root.innerHTML = '<button type="button" class="pe-toggle" data-pe="toggle">编辑原型</button><aside class="pe-panel" hidden><h3 data-pe-drag>编辑原型</h3><p class="pe-status">修改会自动暂存</p><div class="pe-actions"><button type="button" data-pe="undo">上一步</button><button type="button" data-pe="redo">下一步</button></div><div class="pe-actions"><button type="button" class="pe-primary" data-pe="export">导出新 HTML</button><button type="button" class="pe-primary" data-pe="overwrite">覆盖源文件</button></div><section class="pe-history"><b>修改记录</b><ul><li>尚无修改</li></ul></section></aside><div class="pe-context" hidden></div>';
     document.body.appendChild(root);
     const toggle = root.querySelector('.pe-toggle'), panel = root.querySelector('.pe-panel'), status = root.querySelector('.pe-status'), historyList = root.querySelector('.pe-history ul'), context = root.querySelector('.pe-context');
 
@@ -44,6 +45,17 @@
       return key;
     };
     const saveDraft = () => { try { localStorage.setItem(storageKey, JSON.stringify(config)); } catch (_) {} };
+    let panelPosition = null;
+    try { panelPosition = JSON.parse(localStorage.getItem(panelPositionKey)); } catch (_) {}
+    const placePanel = () => {
+      if (!panelPosition || panel.hidden) return;
+      const maxLeft = Math.max(10, innerWidth - panel.offsetWidth - 10);
+      const maxTop = Math.max(10, innerHeight - panel.offsetHeight - 10);
+      panelPosition.left = Math.max(10, Math.min(maxLeft, panelPosition.left));
+      panelPosition.top = Math.max(10, Math.min(maxTop, panelPosition.top));
+      panel.style.left = panelPosition.left + 'px'; panel.style.top = panelPosition.top + 'px'; panel.style.right = 'auto';
+    };
+    const savePanelPosition = () => { try { localStorage.setItem(panelPositionKey, JSON.stringify(panelPosition)); } catch (_) {} };
     const renderHistory = () => {
       historyList.innerHTML = history.slice(1).reverse().map(item => '<li>' + escapeHtml(item.label) + '</li>').join('') || '<li>尚无修改</li>';
       root.querySelector('[data-pe="undo"]').disabled = historyIndex === 0;
@@ -141,6 +153,7 @@
     const setEditing = value => {
       editing = value; document.body.classList.toggle('pe-editing', value); panel.hidden = !value;
       toggle.textContent = value ? '完成编辑' : '编辑原型';
+      if (value) placePanel();
       if (!value) clear();
     };
     const exportHtml = () => {
@@ -211,6 +224,13 @@
       if (action === 'delRow' && selected.row?.parentElement?.tagName !== 'THEAD') { selected.row.remove(); saveTable('删除表格行'); }
       if (action === 'delCol' && selected.cell) { const index=Array.from(selected.cell.parentElement.children).indexOf(selected.cell); Array.from(selected.table.rows).forEach(row => row.children[index]?.remove()); saveTable('删除表格列'); }
     });
+    root.addEventListener('pointerdown', event => {
+      if (!event.target.closest('[data-pe-drag]') || panel.hidden) return;
+      const rect = panel.getBoundingClientRect(); const offsetX = event.clientX - rect.left, offsetY = event.clientY - rect.top;
+      const move = moveEvent => { panelPosition = { left:moveEvent.clientX - offsetX, top:moveEvent.clientY - offsetY }; placePanel(); };
+      const stop = () => { savePanelPosition(); removeEventListener('pointermove', move); removeEventListener('pointerup', stop); };
+      event.preventDefault(); addEventListener('pointermove', move); addEventListener('pointerup', stop, { once:true });
+    });
     context.addEventListener('change', event => {
       const file = event.target.files?.[0]; if (!file || !selected?.image) return;
       const reader = new FileReader(); reader.onload = () => { remember(selected.element, 'attributes'); config.attributes[selected.key] = { ...(config.attributes[selected.key] || {}), src:reader.result }; selected.element.src = reader.result; commit('替换图片'); }; reader.readAsDataURL(file);
@@ -221,7 +241,7 @@
       event.preventDefault(); event.stopPropagation(); choose(event.target);
     }, true);
     document.addEventListener('click', event => { if (editing && !event.target.closest('#prototypeEditorRoot')) { event.preventDefault(); event.stopImmediatePropagation(); } }, true);
-    addEventListener('resize', position); addEventListener('scroll', position, true);
+    addEventListener('resize', () => { position(); placePanel(); }); addEventListener('scroll', position, true);
     applyConfig(); renderHistory();
   }
 
