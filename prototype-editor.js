@@ -155,7 +155,7 @@
       if (!element || element.closest('#prototypeEditorRoot')) return;
       clear(); const hideTarget = select || input || image || (table && !cell ? table : element);
       [element, hideTarget, table].filter(Boolean).forEach(remember);
-      selected = { element, key:pathFor(element), hideTarget, hideKey:pathFor(hideTarget), input:!!input, select:!!select, image:!!image, link:!!link, text:!!text, table, tableKey:table ? pathFor(table) : '', cell, row:cell?.closest('tr') };
+      selected = { element, key:pathFor(element), hideTarget, hideKey:pathFor(hideTarget), input:!!input, select:!!select, image:!!image, link:!!link, text:element === text, table, tableKey:table ? pathFor(table) : '', cell, row:cell?.closest('tr') };
       element.classList.add('pe-selected','pe-selectable'); showContext();
       if (selected.text && !selected.input && !selected.image) { element.setAttribute('contenteditable','true'); element.classList.add('pe-inline-editing'); element.focus(); }
     };
