@@ -95,8 +95,17 @@
     const position = () => {
       if (!selected || context.hidden) return;
       const rect = selected.element.getBoundingClientRect();
-      context.style.left = Math.max(10, Math.min(innerWidth - context.offsetWidth - 10, rect.right + 8)) + 'px';
-      context.style.top = Math.max(10, Math.min(innerHeight - context.offsetHeight - 10, rect.top)) + 'px';
+      const width = context.offsetWidth, height = context.offsetHeight, gap = 8, edge = 10;
+      const candidates = [
+        { left:rect.right + gap, top:rect.top },
+        { left:rect.left - width - gap, top:rect.top },
+        { left:rect.left, top:rect.bottom + gap },
+        { left:rect.left, top:rect.top - height - gap }
+      ];
+      const fits = candidate => candidate.left >= edge && candidate.top >= edge && candidate.left + width <= innerWidth - edge && candidate.top + height <= innerHeight - edge;
+      const target = candidates.find(fits) || candidates[0];
+      context.style.left = Math.max(edge, Math.min(innerWidth - width - edge, target.left)) + 'px';
+      context.style.top = Math.max(edge, Math.min(innerHeight - height - edge, target.top)) + 'px';
     };
     const saveText = () => {
       if (!selected || !selected.text) return;
